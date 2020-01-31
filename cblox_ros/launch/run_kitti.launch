@@ -5,7 +5,7 @@
   <arg name="dataset_path" />
 
   <!-- Parameters -->
-  <arg name="voxel_size" default="0.25" />
+  <arg name="voxel_size" default="0.1" />
   <arg name="truncation_distance_vox" default="4.0" />
   <arg name="num_integrated_frames_per_submap" default="50" />
 
@@ -14,8 +14,8 @@
   <node name="cblox" pkg="cblox_ros" type="tsdf_submap_server" output="screen" args="-alsologtostderr" clear_params="true">
 
     <!-- Topics -->
-    <remap from="pointcloud" to="/velodyne_points" />
-    
+    <remap from="pointcloud" to="/os1_node/points_raw" />
+
     <!-- Voxblox params -->
     <param name="tsdf_voxel_size" value="$(arg voxel_size)" />
     <param name="truncation_distance" value="$(eval arg('truncation_distance_vox') * arg('voxel_size'))"/>
@@ -33,15 +33,12 @@
 
     <!-- Cblox params -->
     <param name="num_integrated_frames_per_submap" value="$(arg num_integrated_frames_per_submap)" />
-    
+
     <!-- Output -->
-    <param name="mesh_filename" value="$(find cblox_ros)/mesh_results/$(anon kitti).ply" />
+    <!-- <param name="mesh_filename" value="$(find cblox_ros)/mesh_results/$(anon kitti).ply" /> -->
   </node>
 
   <!-- Open rvis to display map, trajectory and submap baseframes. -->
   <node name="rviz" pkg="rviz" type="rviz" required="true" args="-d $(find cblox_ros)/cfg/kitti_demo.rviz" />
-
-  <!-- Play the dataset -->
-  <node name="rosbag" pkg="rosbag" type="play" args="--clock $(arg dataset_path)" />
 
 </launch>

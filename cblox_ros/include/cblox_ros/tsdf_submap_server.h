@@ -33,6 +33,15 @@ constexpr double kDefaultMinTimeBetweenMsgsSec = 0.0;
 // Data queue sizes
 constexpr int kDefaultPointcloudQueueSize = 1;
 
+struct PointCloudWithTF{
+  PointCloudWithTF(sensor_msgs::PointCloud2::Ptr point_cloud_in, Transformation &T_G_C_in) {
+    point_cloud = point_cloud_in;
+    T_G_C = T_G_C_in;
+  }
+  sensor_msgs::PointCloud2::Ptr point_cloud;
+  Transformation T_G_C;
+};
+
 // Receives ROS Data and produces a collection of submaps
 class TsdfSubmapServer {
  public:
@@ -86,12 +95,13 @@ class TsdfSubmapServer {
   // processing, and process messages in the queue.
   void addMesageToPointcloudQueue(
       const sensor_msgs::PointCloud2::Ptr& pointcloud_msg_in);
+  void addMesageToPointcloudWithTFQueue();
   void servicePointcloudQueue();
 
   // Checks if we can get the next message from queue.
   bool getNextPointcloudFromQueue(
-      std::queue<sensor_msgs::PointCloud2::Ptr>* queue,
-      sensor_msgs::PointCloud2::Ptr* pointcloud_msg, Transformation* T_G_C);
+    std::queue<PointCloudWithTF>* queue,
+    sensor_msgs::PointCloud2::Ptr* pointcloud_msg, Transformation* T_G_C);
 
   // Pointcloud integration
   void processPointCloudMessageAndInsert(
@@ -108,6 +118,7 @@ class TsdfSubmapServer {
   // Submap creation
   bool newSubmapRequired() const;
   void createNewSubmap(const Transformation& T_G_C);
+  void resetSubmap(const Transformation& T_G_C);
 
   // Node handles
   ros::NodeHandle nh_;
@@ -120,6 +131,7 @@ class TsdfSubmapServer {
   ros::Publisher active_submap_mesh_pub_;
   ros::Publisher submap_poses_pub_;
   ros::Publisher trajectory_pub_;
+  ros::Publisher tsdf_map_pub_;
 
   // Services
   ros::ServiceServer generate_separated_mesh_srv_;
@@ -158,10 +170,15 @@ class TsdfSubmapServer {
 
   // The queue of unprocessed pointclouds
   std::queue<sensor_msgs::PointCloud2::Ptr> pointcloud_queue_;
+  std::queue<PointCloudWithTF> pointcloud_with_tf_queue_;
 
   // Last message times for throttling input.
   ros::Duration min_time_between_msgs_;
   ros::Time last_msg_time_ptcloud_;
+
+  //
+  Transformation last_T_G_C_;
+
 
   /// Colormap to use for intensity pointclouds.
   std::unique_ptr<voxblox::ColorMap> color_map_;
