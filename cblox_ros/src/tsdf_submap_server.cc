@@ -70,6 +70,8 @@ TsdfSubmapServer::TsdfSubmapServer(
   trajectory_visualizer_ptr_.reset(new TrajectoryVisualizer);
 
   last_msg_time_ptcloud_ = ros::Time::now();
+
+  pointcloud_with_tf_buffer_.reset(num_integrated_frames_per_submap_+10);
 }
 
 void TsdfSubmapServer::subscribeToTopics() {
@@ -172,9 +174,10 @@ void TsdfSubmapServer::addMesageToPointcloudWithTFQueue() {
       //double d_rotation = delta_pose.getRotation().getAngleShortestPath();
       double d_rotation = M_PI;
       if ((d_translation > min_tranlation_between_msgs_) && (d_rotation > min_rotation_between_msgs_)) {
-        pointcloud_with_tf_queue_.push(PointCloudWithTF(pointcloud_msg, current_T_G_C));
+        // pointcloud_with_tf_queue_.push(PointCloudWithTF(pointcloud_msg, current_T_G_C));
+        pointcloud_with_tf_buffer_.writeData(PointCloudWithTF(pointcloud_msg, current_T_G_C), true);
         last_T_G_C_ = current_T_G_C;
-        ROS_INFO("Added %d msgs", pointcloud_with_tf_queue_.size());
+        ROS_INFO("Added %d msgs", pointcloud_with_tf_buffer_.size());
       }
     } else {
       cont = false;
@@ -191,13 +194,13 @@ void TsdfSubmapServer::addMesageToPointcloudWithTFQueue() {
     }
   }
 
-  if (pointcloud_with_tf_queue_.size() > num_integrated_frames_per_submap_) {
+  if (pointcloud_with_tf_buffer_.size() > num_integrated_frames_per_submap_) {
     ROS_ERROR_THROTTLE(60,
                         "Input pointcloud queue getting too long! Dropping "
                         "some pointclouds. Either unable to look up transform "
                         "timestamps or the processing is taking too long.");
-    while (pointcloud_with_tf_queue_.size() > max_queue_size_) {
-      pointcloud_with_tf_queue_.pop();
+    while (pointcloud_with_tf_buffer_.size() > max_queue_size_) {
+      pointcloud_with_tf_buffer_.pop();
     }
   }
 }
@@ -206,7 +209,7 @@ void TsdfSubmapServer::servicePointcloudQueue() {
   // NOTE(alexmilane): T_G_C - Transformation between Camera frame (C) and
   //                           global tracking frame (G).
 
-  if (pointcloud_with_tf_queue_.size() < num_integrated_frames_per_submap_)
+  if (pointcloud_with_tf_buffer_.size() < num_integrated_frames_per_submap_)
     return;
 
   Transformation T_G_C;
@@ -215,7 +218,7 @@ void TsdfSubmapServer::servicePointcloudQueue() {
   ros::WallTime start = ros::WallTime::now();
   bool first_iter = true;
   while (
-      getNextPointcloudFromQueue(&pointcloud_with_tf_queue_, &pointcloud_msg, &T_G_C)) {
+      getNextPointcloudFromBuffer(&pointcloud_with_tf_buffer_, &pointcloud_msg, &T_G_C)) {
     if(first_iter) {
       first_iter = false;
       resetSubmap(T_G_C);
@@ -230,7 +233,7 @@ void TsdfSubmapServer::servicePointcloudQueue() {
   ROS_INFO(
     "Finished integrating %d pointclouds in %f seconds, have %lu blocks. %u frames "
     "integrated to current submap.",
-    num_integrated_frames_per_submap_ - pointcloud_with_tf_queue_.size(),
+    num_integrated_frames_per_submap_ - pointcloud_with_tf_buffer_.size(),
     (end - start).toSec());
 
   if (tsdf_map_pub_.getNumSubscribers()) {
@@ -253,6 +256,19 @@ bool TsdfSubmapServer::getNextPointcloudFromQueue(
   *pointcloud_msg = queue->front().point_cloud;
   *T_G_C = queue->front().T_G_C;
   queue->pop();
+  return true;
+}
+
+bool TsdfSubmapServer::getNextPointcloudFromBuffer(
+    PointCloudWithTFRingBuffer<PointCloudWithTF>* buffer,
+    sensor_msgs::PointCloud2::Ptr* pointcloud_msg, Transformation* T_G_C) {
+  if (buffer->empty()) {
+    return false;
+  }
+  PointCloudWithTF data;
+  buffer->readData(data);
+  *pointcloud_msg = data.point_cloud;
+  *T_G_C = data.T_G_C;
   return true;
 }
 

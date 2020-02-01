@@ -14,7 +14,7 @@
   <node name="cblox" pkg="cblox_ros" type="tsdf_submap_server" output="screen" args="-alsologtostderr" clear_params="true">
 
     <!-- Topics -->
-    <remap from="pointcloud" to="/os1_node/points_raw" />
+    <remap from="pointcloud" to="/os1_cloud_node/points" />
 
     <!-- Voxblox params -->
     <param name="tsdf_voxel_size" value="$(arg voxel_size)" />
@@ -25,8 +25,8 @@
     <param name="enable_icp" value="false" />
     <param name="verbose" value="true" />
     <param name="update_mesh_every_n_sec" value="0.2" />
-    <param name="max_ray_length_m" value="25.0" />
-    <param name="min_ray_length_m" value="2.0" />
+    <param name="max_ray_length_m" value="15.0" />
+    <param name="min_ray_length_m" value="1.0" />
     <param name="min_time_between_msgs_sec" value="0.0" />
     <param name="method" value="fast" />
     <param name="use_const_weight" value="true" />
@@ -39,6 +39,6 @@
   </node>
 
   <!-- Open rvis to display map, trajectory and submap baseframes. -->
-  <node name="rviz" pkg="rviz" type="rviz" required="true" args="-d $(find cblox_ros)/cfg/kitti_demo.rviz" />
+  <!-- <node name="rviz" pkg="rviz" type="rviz" required="true" args="-d $(find cblox_ros)/cfg/kitti_demo.rviz" /> -->
 
 </launch>

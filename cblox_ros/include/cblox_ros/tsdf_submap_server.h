@@ -34,12 +34,142 @@ constexpr double kDefaultMinTimeBetweenMsgsSec = 0.0;
 constexpr int kDefaultPointcloudQueueSize = 1;
 
 struct PointCloudWithTF{
+  PointCloudWithTF(): is_empty(true) {}
   PointCloudWithTF(sensor_msgs::PointCloud2::Ptr point_cloud_in, Transformation &T_G_C_in) {
     point_cloud = point_cloud_in;
     T_G_C = T_G_C_in;
+    is_empty = false;
   }
   sensor_msgs::PointCloud2::Ptr point_cloud;
   Transformation T_G_C;
+  bool is_empty;
+  PointCloudWithTF& operator=(const PointCloudWithTF& other) {
+    if (this != &other) {
+      point_cloud = other.point_cloud;
+      T_G_C = other.T_G_C;
+    }
+    return *this;
+  }
+};
+
+template<class DataType>
+class PointCloudWithTFRingBuffer {
+ public:
+  PointCloudWithTFRingBuffer(): buffer_size_(0) {}
+  PointCloudWithTFRingBuffer(int buffer_size) {
+    reset(buffer_size);
+  }
+
+  ~PointCloudWithTFRingBuffer() {
+    buffer_.clear();
+  }
+
+  void reset(int buffer_size) {
+    clear();
+    if (buffer_size <= 0) {
+      ROS_ERROR("Buffer size must be positive");
+      return;
+    }
+    buffer_size_ = buffer_size;
+    buffer_.resize(buffer_size_);
+  }
+
+  void clear() {
+    buffer_size_ = 0;
+    read_ind_ = 0;
+    write_ind_ = 0;
+    read_count_ = 0;
+    write_count_ = 0;
+    buffer_.clear();
+  }
+
+  size_t size() {
+    if (write_ind_ >= read_ind_) return (write_ind_ - read_ind_);
+    else return (write_ind_ - read_ind_ + buffer_size_);
+  }
+
+  void pop() {
+    if (!empty()) increaseInd(read_ind_);
+  }
+
+  bool full() {
+    return ((buffer_size_) && ((write_ind_ + 1) % (buffer_size_) == read_ind_));
+  }
+
+  bool empty() {
+    return (read_ind_ == write_ind_);
+  }
+
+  int getRingSize() {
+    return buffer_size_;
+  }
+
+  bool writeData(const DataType &data, bool write_even_fulled = false) {
+    if (full() && !write_even_fulled) {
+      if (write_even_fulled) {
+        // Force to increase the read ind.
+        increaseInd(read_ind_);
+      } else {
+        return false;
+      }
+    }
+    writeDataToBuffer(write_ind_, data);
+    increaseInd(write_ind_);
+    return true;
+  }
+
+  bool readData(DataType &data) {
+    if (empty()) return false;
+    readDataFromBuffer(read_ind_, data);
+    increaseInd(read_ind_);
+  }
+
+  bool readDataFromHistory(const int start_ind, const int len, std::vector<DataType> &data) {
+    /* Be careful with this */
+    if ((len < 0) || (len > buffer_size_)) return false;
+    if ((start_ind < 0) || (start_ind > buffer_size_)) return false;
+    int read_ind = start_ind;
+    shiftInd(read_ind, len);
+    for (int i = 0; i < len; ++i) {
+      data.push_back(buffer_[read_ind]);
+      increaseInd(read_ind);
+    }
+  }
+
+ private:
+  inline void increaseInd(int &ind) {
+    ind = (ind + 1) % buffer_size_;
+  }
+
+  inline void shiftInd(int &ind, const int steps) {
+    if (steps >= 0) {
+      // Shift forward
+      ind = (ind + steps) % buffer_size_;
+    } else {
+      // Shift backward
+      int steps_tmp = steps;
+      while (steps_tmp > buffer_size_) steps_tmp -= buffer_size_;
+      ind -= steps_tmp;
+      if (ind < 0) ind += buffer_size_;
+    }
+  }
+
+  inline void writeDataToBuffer(const int ind, const DataType &data) {
+    buffer_[ind] = data;
+    ++write_count_;
+  }
+
+  inline void readDataFromBuffer(const int ind, DataType &data) {
+    data = buffer_[ind];
+    ++read_count_;
+  }
+
+  int buffer_size_;
+  int read_ind_;
+  int write_ind_;
+  int write_count_;
+  int read_count_;
+  std::vector<DataType> buffer_;
 };
 
 // Receives ROS Data and produces a collection of submaps
@@ -101,6 +231,10 @@ class TsdfSubmapServer {
   // Checks if we can get the next message from queue.
   bool getNextPointcloudFromQueue(
     std::queue<PointCloudWithTF>* queue,
+    sensor_msgs::PointCloud2::Ptr* pointcloud_msg, Transformation* T_G_C);
+
+  bool getNextPointcloudFromBuffer(
+    PointCloudWithTFRingBuffer<PointCloudWithTF>* buffer,
     sensor_msgs::PointCloud2::Ptr* pointcloud_msg, Transformation* T_G_C);
 
   // Pointcloud integration
@@ -171,6 +305,8 @@ class TsdfSubmapServer {
   // The queue of unprocessed pointclouds
   std::queue<sensor_msgs::PointCloud2::Ptr> pointcloud_queue_;
   std::queue<PointCloudWithTF> pointcloud_with_tf_queue_;
+
+  PointCloudWithTFRingBuffer<PointCloudWithTF> pointcloud_with_tf_buffer_;
 
   // Last message times for throttling input.
   ros::Duration min_time_between_msgs_;
