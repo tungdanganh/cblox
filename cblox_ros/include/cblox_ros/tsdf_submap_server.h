@@ -9,6 +9,7 @@
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <std_srvs/Empty.h>
+#include <std_srvs/SetBool.h>
 
 #include <voxblox/utils/color_maps.h>
 #include <voxblox_ros/transformer.h>
@@ -47,6 +48,7 @@ struct PointCloudWithTF{
     if (this != &other) {
       point_cloud = other.point_cloud;
       T_G_C = other.T_G_C;
+      is_empty = other.is_empty;
     }
     return *this;
   }
@@ -104,8 +106,20 @@ class PointCloudWithTFRingBuffer {
     return buffer_size_;
   }
 
+  int getWriteInd() {
+    return write_ind_;
+  }
+
+  int getReadInd() {
+    return read_ind_;
+  }
+
+  void cleanReadInd() {
+    read_ind_ = write_ind_;
+  }
+
   bool writeData(const DataType &data, bool write_even_fulled = false) {
-    if (full() && !write_even_fulled) {
+    if (full()) {
       if (write_even_fulled) {
         // Force to increase the read ind.
         increaseInd(read_ind_);
@@ -190,6 +204,9 @@ class TsdfSubmapServer {
   virtual void pointcloudCallback(
       const sensor_msgs::PointCloud2::Ptr& pointcloud_msg);
 
+  virtual void pointcloud2Callback(
+      const sensor_msgs::PointCloud2::Ptr& pointcloud_msg);
+
   // Saving and Loading callbacks
   bool saveMap(const std::string& file_path);
   bool loadMap(const std::string& file_path);
@@ -197,6 +214,8 @@ class TsdfSubmapServer {
                        voxblox_msgs::FilePath::Response& response);  // NOLINT
   bool loadMapCallback(voxblox_msgs::FilePath::Request& request,     // NOLINT
                        voxblox_msgs::FilePath::Response& response);  // NOLINT
+  bool startMapCallback(std_srvs::SetBool::Request& request,
+                        std_srvs::SetBool::Response& response);
 
   // Update the mesh and publish for visualization
   void updateMeshEvent(const ros::TimerEvent& /*event*/);
@@ -226,6 +245,7 @@ class TsdfSubmapServer {
   void addMesageToPointcloudQueue(
       const sensor_msgs::PointCloud2::Ptr& pointcloud_msg_in);
   void addMesageToPointcloudWithTFQueue();
+  void addMesageToPointcloudWithTFQueue2();
   void servicePointcloudQueue();
 
   // Checks if we can get the next message from queue.
@@ -260,6 +280,7 @@ class TsdfSubmapServer {
 
   // Subscribers
   ros::Subscriber pointcloud_sub_;
+  ros::Subscriber pointcloud2_sub_;
 
   // Publishers
   ros::Publisher active_submap_mesh_pub_;
@@ -272,6 +293,7 @@ class TsdfSubmapServer {
   ros::ServiceServer generate_combined_mesh_srv_;
   ros::ServiceServer save_map_srv_;
   ros::ServiceServer load_map_srv_;
+  ros::ServiceServer start_map_srv_;
 
   // Timers.
   ros::Timer update_mesh_timer_;
@@ -304,13 +326,19 @@ class TsdfSubmapServer {
 
   // The queue of unprocessed pointclouds
   std::queue<sensor_msgs::PointCloud2::Ptr> pointcloud_queue_;
+  std::queue<sensor_msgs::PointCloud2::Ptr> pointcloud2_queue_;
   std::queue<PointCloudWithTF> pointcloud_with_tf_queue_;
 
+  std::mutex pointcloud_with_tf_buffer_mutex_;
   PointCloudWithTFRingBuffer<PointCloudWithTF> pointcloud_with_tf_buffer_;
 
   // Last message times for throttling input.
   ros::Duration min_time_between_msgs_;
   ros::Time last_msg_time_ptcloud_;
+
+  // Status, New CMD
+  bool start_map_service_req_;
+  bool mapping_cmd_;
 
   //
   Transformation last_T_G_C_;
